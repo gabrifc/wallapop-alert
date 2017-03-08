@@ -9,6 +9,7 @@ savePath = os.path.join(tempfile.gettempdir()) + '/'
 pushToken = '<your token>'
 email = '<your email>'
 saveData = True
+push_bullet = False
 
 # Demiurge for get products in Wallapop
 class Products(demiurge.Item):
@@ -18,7 +19,7 @@ class Products(demiurge.Item):
 
     class Meta:
         selector = 'div.card-product'
-        
+
 class ProductDetails(demiurge.Item):
     description = demiurge.TextField(selector='p.card-product-detail-description')
     location = demiurge.TextField(selector='div.card-product-detail-location')
@@ -31,7 +32,8 @@ def sendPushBullet(pushToken, email, title, body, url):
     os.system(command)
 
 def wallAlert(urlSearch, SAVE_LOCATION):
-# Load after data search
+    data_temp = []
+    # Load after data search
     try:
         dataFile = open(SAVE_LOCATION, 'rb')
         data_save = pickle.load(dataFile)
@@ -41,7 +43,6 @@ def wallAlert(urlSearch, SAVE_LOCATION):
 
     # Read web
     results = Products.all(urlSearch)
-    data_temp = []
 
     for item in results:
         data_temp.append({'title': item.title
@@ -78,9 +79,8 @@ def wallAlert(urlSearch, SAVE_LOCATION):
         # Send Alert
         print(title, body, url)
         print('-' * 10)
-        sendPushBullet(pushToken, email, title, body, applink)
-
-
+        if push_bullet:
+            sendPushBullet(pushToken, email, title, body, applink)
 
 def usage():
     print ("Usage:", __file__," -k <keywords file or list separated by comma>")
@@ -89,7 +89,7 @@ def extractArguments(argv):
     # Get variables
     keywordList = []
 
-    try:                                
+    try:
         opts, args = getopt.getopt(argv, "k:", ["keywords="])
 
     except getopt.GetoptError:
@@ -120,7 +120,7 @@ def extractArguments(argv):
 def main(argv):
     # Process command line arguments
     keywordList = extractArguments(argv)
-  
+
     # Loop through keywords
     for keyword in keywordList:
         SAVE_LOCATION = savePath + keyword + '.pkl'
