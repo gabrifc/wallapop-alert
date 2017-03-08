@@ -4,11 +4,11 @@ import demiurge, sys, getopt, os, pickle, tempfile
 
 urlWallapop = 'http://es.wallapop.com'
 urlWallapopMobile = 'http://p.wallapop.com/i/'
-SAVE_LOCATION = os.path.join(tempfile.gettempdir(), 'alertWallapop.pkl')
-data_save = True
+savePath = os.path.join(tempfile.gettempdir()) + '/'
 
-pushToken = '<your token here>'
-email = '<your email here>'
+pushToken = '<your token>'
+email = '<your email>'
+saveData = True
 
 # Demiurge for get products in Wallapop
 class Products(demiurge.Item):
@@ -30,13 +30,14 @@ def sendPushBullet(pushToken, email, title, body, url):
     command = "curl -X POST -H 'Access-Token: {pushToken}' -F 'type=link' -F 'title={title}' -F 'body={body}' -F 'url={url}' -F 'email={email}' 'https://api.pushbullet.com/v2/pushes'".format(pushToken = pushToken, email=email, title=title, body=body, url=url)
     os.system(command)
 
-def wallAlert(urlSearch):
-    # Load after data search
+def wallAlert(urlSearch, SAVE_LOCATION):
+# Load after data search
     try:
         dataFile = open(SAVE_LOCATION, 'rb')
         data_save = pickle.load(dataFile)
+        dataFile.close()
     except:
-        pass
+        data_save = []
 
     # Read web
     results = Products.all(urlSearch)
@@ -49,28 +50,36 @@ def wallAlert(urlSearch):
 
     # Check new items
     list_news = []
-    if data_save and data_save != data_temp:
-        for item in data_temp:
-            if item not in data_save:
-                list_news.append(item)
+    for item in data_temp:
+        if item not in data_save:
+            list_news.append(item)
+            # Save into the db
+            data_save.append(item)
+
+    # Save data
+    dataFile = open(SAVE_LOCATION, 'wb')
+    if saveData:
+        pickle.dump(data_save, dataFile)
+    else:
+        pickle.dump(data_temp, dataFile)
+    dataFile.close()
 
     for item in list_news:
         # Get info from new items
         title = item['title'] + " - " + item['price']
+        title = title.encode('utf-8')
         url = urlWallapop + item['relativeUrl']
         itemDetails = ProductDetails.one(url)
         body = itemDetails.description + "\n" + itemDetails.location
+        body = body.encode('utf-8')
         productID = url.split("-")[-1]
         applink = urlWallapopMobile + productID
 
         # Send Alert
         print(title, body, url)
         print('-' * 10)
-        sendPushBullet(pushToken, channelTag, title, body, applink)
+        sendPushBullet(pushToken, email, title, body, applink)
 
-    # Save data
-    data_save = open(SAVE_LOCATION, 'wb')
-    pickle.dump(data_temp, data_save)
 
 
 def usage():
@@ -114,9 +123,12 @@ def main(argv):
   
     # Loop through keywords
     for keyword in keywordList:
+        SAVE_LOCATION = savePath + keyword + '.pkl'
+        print('*' * 10)
         print ("Searching", keyword)
+        print('*' * 10)
         urlSearch = 'http://es.wallapop.com/search?kws=' + keyword + '&maxPrice=&dist=0_&order=creationData-des&lat=41.398077&lng=2.170432'
-        wallAlert(urlSearch)
+        wallAlert(urlSearch, SAVE_LOCATION)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
