@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import urllib.request, sys, getopt, os, json, pickle
+import urllib.request, sys, getopt, os, json
 
 urlWallapop = 'http://es.wallapop.com'
 urlWallapopMobile = 'http://p.wallapop.com/i/'
