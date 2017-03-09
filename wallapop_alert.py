@@ -1,86 +1,104 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import demiurge, sys, getopt, os, pickle, tempfile
+import urllib.request, sys, getopt, os, json, pickle
 
 urlWallapop = 'http://es.wallapop.com'
 urlWallapopMobile = 'http://p.wallapop.com/i/'
-savePath = os.path.join(tempfile.gettempdir()) + '/'
+urlAPI = 'http://es.wallapop.com/rest/items?minPrice=&maxPrice=&dist=0_&order=creationDate-des&lat=41.398077&lng=2.170432&kws='
+savePath = os.path.dirname(os.path.realpath(__file__)) + '/dbs/'
 
-pushToken = '<your token>'
-email = '<your email>'
+pushToken = '<your token here>'
+channelTag = '<your channel here>'
 saveData = True
-push_bullet = False
+push_bullet = True
 
-# Demiurge for get products in Wallapop
-class Products(demiurge.Item):
-    title = demiurge.TextField(selector='a.product-info-title')
-    price = demiurge.TextField(selector='span.product-info-price')
-    url = demiurge.AttributeValueField(selector='div.card-product-product-info a.product-info-title', attr='href')
 
-    class Meta:
-        selector = 'div.card-product'
+# 0. Reusable functions
 
-class ProductDetails(demiurge.Item):
-    description = demiurge.TextField(selector='p.card-product-detail-description')
-    location = demiurge.TextField(selector='div.card-product-detail-location')
+# getUrl: downloads the source code of an URL / API call
+def getUrl(url):
+    with urllib.request.urlopen(url) as url:
+        # return url.read()
+        source = url.read().decode('utf-8')
+    return source
 
-    class Meta:
-        selector = 'div.card-product-detail'
+# translateJson: Converts the string to a json dictionary
+def translateJson(string):
+    return json.loads(string)
 
-def sendPushBullet(pushToken, email, title, body, url):
-    command = "curl -X POST -H 'Access-Token: {pushToken}' -F 'type=link' -F 'title={title}' -F 'body={body}' -F 'url={url}' -F 'email={email}' 'https://api.pushbullet.com/v2/pushes'".format(pushToken = pushToken, email=email, title=title, body=body, url=url)
+# importJSON: Loads a JSON File as a Dict
+def importJSON(file):
+    with open(file) as dataFile:
+        #return json.load(data_file)
+        data = json.load(dataFile)
+    return data
+
+# dumpJSON: Writes a JSON File
+def dumpJSON(data, file):
+    with open(file, 'w') as outfile:
+        json.dump(data, outfile)
+
+# sendPushBullet: Send the notification via pushbullet
+def sendPushBullet(pushToken, channelTag, title, body, url):
+    command = "curl -X POST -H 'Access-Token: {pushToken}' -F 'type=link' -F 'title={title}' -F 'body={body}' -F 'url={url}' -F 'channel_tag={channel}' 'https://api.pushbullet.com/v2/pushes'".format(pushToken = pushToken, channel=channelTag, title=title, body=body, url=url)
+    #print(command)
     os.system(command)
 
-def wallAlert(urlSearch, SAVE_LOCATION):
-    data_temp = []
-    # Load after data search
+# wallAlert, main function
+def wallAlert(urlSearch, jsonDBFile):
+
+    # Read the db
     try:
-        dataFile = open(SAVE_LOCATION, 'rb')
-        data_save = pickle.load(dataFile)
-        dataFile.close()
+        jsonDB = importJSON(jsonDBFile)
     except:
-        data_save = []
+        jsonDB = {}
 
-    # Read web
-    results = Products.all(urlSearch)
+    # List for the new items
+    newItemsList = []
 
-    for item in results:
-        data_temp.append({'title': item.title
-                          , 'price': item.price
-                          , 'relativeUrl': item.url })
+    # To prevent unnecesary functions:
+    itemsInDb = jsonDB.keys()
+    
+    # API Call
+    results = translateJson(getUrl(urlSearch))
 
-    # Check new items
-    list_news = []
-    for item in data_temp:
-        if item not in data_save:
-            list_news.append(item)
-            # Save into the db
-            data_save.append(item)
+    # Process JSON
+    for item in results['items']:
+        product = {}
+        product['itemId'] = str(item['itemId'])
+        # Check if the product is new
+        if product['itemId'] not in itemsInDb:
+            # Is new, get info
+            product['title'] = item['title']
+            product['price'] = item['price']
+            product['description'] = item['description']
+            product['url'] = item['url']
+            product['pictureURL'] = item['pictureURL']
+            product['location'] = item['itemLocation']['fullAddress']
+            # Append to the new items list
+            newItemsList.append(product)
+            # New item, put it in the db
+            jsonDB[product['itemId']] = product
 
-    # Save data
-    dataFile = open(SAVE_LOCATION, 'wb')
+    # Update the db
     if saveData:
-        pickle.dump(data_save, dataFile)
-    else:
-        pickle.dump(data_temp, dataFile)
-    dataFile.close()
+        dumpJSON(jsonDB, jsonDBFile)
 
-    for item in list_news:
+    for item in newItemsList:
         # Get info from new items
         title = item['title'] + " - " + item['price']
-        title = title.encode('utf-8')
-        url = urlWallapop + item['relativeUrl']
-        itemDetails = ProductDetails.one(url)
-        body = itemDetails.description + "\n" + itemDetails.location
-        body = body.encode('utf-8')
-        productID = url.split("-")[-1]
-        applink = urlWallapopMobile + productID
+        url = urlWallapop + '/item/' + item['url']
+        body = item['description'] + "\n" + item['location']
+        applink = urlWallapopMobile + item['itemId']
 
-        # Send Alert
+        # Parse the strings for url calls
+        title = title.replace("'", "")
+        body = body.replace("'", "")
+
         print(title, body, url)
         print('-' * 10)
         if push_bullet:
-            sendPushBullet(pushToken, email, title, body, applink)
+            sendPushBullet(pushToken, channelTag, title, body, applink)
 
 def usage():
     print ("Usage:", __file__," -k <keywords file or list separated by comma>")
@@ -116,19 +134,27 @@ def extractArguments(argv):
 
     return keywordList
 
-
 def main(argv):
     # Process command line arguments
     keywordList = extractArguments(argv)
 
     # Loop through keywords
     for keyword in keywordList:
-        SAVE_LOCATION = savePath + keyword + '.pkl'
-        print('*' * 10)
+        # Fix the keyword
+        keyword = keyword.replace(" ", "+")
+
+        # Get the db file
+        jsonDBFile = savePath + keyword + '.json'
+
+        # Get the API url
+        urlSearch = urlAPI + keyword
+
+        # Start the search
+        print ('*' * 10)
         print ("Searching", keyword)
-        print('*' * 10)
-        urlSearch = 'http://es.wallapop.com/search?kws=' + keyword + '&maxPrice=&dist=0_&order=creationData-des&lat=41.398077&lng=2.170432'
-        wallAlert(urlSearch, SAVE_LOCATION)
+        print (urlSearch)
+
+        wallAlert(urlSearch, jsonDBFile)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
